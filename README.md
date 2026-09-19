@@ -33,7 +33,13 @@
 ### 🎨 Appearance
 - Dark and light themes with a neutral grey/blue accent system
 - Toolbar at the top or bottom
-- Animated dropdown menu, settings page transitions, and tab-switcher open/close
+- Spring-physics animations: dropdown menu open, sliding settings pages, staggered tab-grid entrance, tab-switcher open/close
+
+### 🔐 Password manager (100% on-device, no account, no cloud)
+- Device-password login plus system screen-lock unlock (PIN / pattern / fingerprint)
+- Passwords encrypted at rest (Tink AES-256-GCM, keys in Android Keystore); the password itself is never stored
+- Save, reveal, copy, and delete logins per site
+- CSV import with auto-detected dialects: Chrome, Brave, Opera, Edge (`name,url,username,password`) and Firefox (`url,username,password,…`) — skips blanks and duplicates
 
 ### ⚙️ Settings
 - Appearance (theme + toolbar position), Search Engine (defaults + custom), About

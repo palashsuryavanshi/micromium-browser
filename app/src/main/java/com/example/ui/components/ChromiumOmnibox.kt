@@ -3,6 +3,8 @@ package com.example.ui.components
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -118,10 +120,13 @@ fun ChromiumOmnibox(
     modifier: Modifier = Modifier
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
-    // Menu open animation progress (0 = closed, 1 = open): scale + fade from top-end
+    // Menu open animation progress (0 = closed, 1 = open): springy scale + fade from top-end
     val menuOpenProgress by animateFloatAsState(
         targetValue = if (isMenuExpanded) 1f else 0f,
-        animationSpec = tween(durationMillis = 180),
+        animationSpec = spring(
+            dampingRatio = 0.85f,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "menu_open"
     )
     val focusRequester = remember { FocusRequester() }
@@ -161,8 +166,8 @@ fun ChromiumOmnibox(
                     badge = {
                         if (shieldActive && blockedCount > 0) {
                             Badge(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = MaterialTheme.colorScheme.onSecondary,
                                 modifier = Modifier.testTag("shield_badge")
                             ) {
                                 Text(
@@ -178,7 +183,7 @@ fun ChromiumOmnibox(
                         imageVector = Icons.Filled.Shield,
                         contentDescription = "Privacy Shield",
                         tint = if (shieldActive) {
-                            if (blockedCount > 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                            MaterialTheme.colorScheme.secondary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         },

@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -59,6 +61,7 @@ import com.example.ui.components.PrivacyShieldSheet
 import com.example.ui.components.SettingsScreen
 import com.example.ui.components.ShieldWebView
 import com.example.ui.components.TabGridSwitcher
+import com.example.ui.components.isBiometricEnrolled
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -106,10 +109,13 @@ fun BrowserApp(
     val bookmarks by viewModel.bookmarks.collectAsState()
     val history by viewModel.history.collectAsState()
     val thumbnails by viewModel.thumbnails.collectAsState()
-    val authUser by viewModel.authUser.collectAsState()
-    val authBusy by viewModel.authBusy.collectAsState()
-    val authError by viewModel.authError.collectAsState()
-
+    val vaultHasPassword by viewModel.hasVaultPassword.collectAsState()
+    val vaultUnlocked by viewModel.vaultUnlocked.collectAsState()
+    val vaultLogins by viewModel.vaultLogins.collectAsState()
+    val vaultBusy by viewModel.vaultBusy.collectAsState()
+    val vaultError by viewModel.vaultError.collectAsState()
+    val vaultLastImportCount by viewModel.vaultLastImportCount.collectAsState()
+    val biometricAllowed by viewModel.biometricAllowed.collectAsState()
     // Clear Data Dialog state
     var showClearDataDialog by remember { mutableStateOf(false) }
     var clearCacheSelected by remember { mutableStateOf(true) }
@@ -313,8 +319,16 @@ fun BrowserApp(
     // Tab Grid Switcher Overlay
     AnimatedVisibility(
         visible = isTabSwitcherVisible,
-        enter = fadeIn(animationSpec = tween(200)) +
-            scaleIn(initialScale = 0.96f, animationSpec = tween(200)),
+        enter = fadeIn(animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        )) + scaleIn(
+            initialScale = 0.96f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMedium
+            )
+        ),
         exit = fadeOut(animationSpec = tween(150)) +
             scaleOut(targetScale = 0.96f, animationSpec = tween(150))
     ) {
@@ -381,16 +395,24 @@ fun BrowserApp(
             onSearchEngineSelect = { viewModel.setSelectedSearchEngine(it) },
             onAddCustomSearchEngine = { name, url -> viewModel.addCustomSearchEngine(name, url) },
             onRemoveCustomSearchEngine = { viewModel.removeCustomSearchEngine(it) },
-            authUser = authUser,
-            isFirebaseConfigured = viewModel.isFirebaseConfigured,
-            isGoogleSignInConfigured = viewModel.isGoogleSignInConfigured,
-            authBusy = authBusy,
-            authError = authError,
-            onSignUp = { email, password -> viewModel.signUpWithEmail(email, password) },
-            onSignIn = { email, password -> viewModel.signInWithEmail(email, password) },
-            onGoogleSignIn = { activity -> viewModel.signInWithGoogle(activity) },
-            onSignOut = { viewModel.signOut() },
-            onClearAuthError = { viewModel.clearAuthError() },
+            vaultHasPassword = vaultHasPassword,
+            vaultUnlocked = vaultUnlocked,
+            vaultLogins = vaultLogins,
+            vaultBusy = vaultBusy,
+            vaultError = vaultError,
+            vaultLastImportCount = vaultLastImportCount,
+            biometricEnrolled = isBiometricEnrolled(context),
+            biometricAllowed = biometricAllowed,
+            onSetupVaultPassword = { password, enableBiometric -> viewModel.setupVaultPassword(password, enableBiometric) },
+            onUnlockVault = { password -> viewModel.unlockVault(password) },
+            onBiometricUnlock = { viewModel.unlockVaultWithBiometrics() },
+            onSetBiometricAllowed = { allowed -> viewModel.setBiometricAllowed(allowed) },
+            onLockVault = { viewModel.lockVault() },
+            onAddVaultLogin = { site, username, password -> viewModel.addVaultLogin(site, username, password) },
+            onDeleteVaultLogin = { id -> viewModel.deleteVaultLogin(id) },
+            onImportVaultCsv = { content -> viewModel.importVaultCsv(content) },
+            onClearVaultError = { viewModel.clearVaultError() },
+            onClearVaultImportCount = { viewModel.clearVaultImportCount() },
             onBack = { viewModel.setSettingsDialogVisible(false) }
         )
     }

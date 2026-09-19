@@ -1,16 +1,16 @@
 package com.example.ui
 
-import android.app.Activity
 import android.app.Application
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.AuthRepository
 import com.example.data.BookmarkEntity
 import com.example.data.BrowserDatabase
 import com.example.data.BrowserRepository
 import com.example.data.HistoryEntity
+import com.example.data.VaultLogin
+import com.example.data.VaultRepository
 import com.example.model.BrowserTab
 import com.example.model.START_PAGE_URL
 import com.example.model.SearchEngine
@@ -18,7 +18,6 @@ import com.example.privacy.BlockCategory
 import com.example.privacy.BlockedEvent
 import com.example.privacy.PrivacyEngine
 import com.example.privacy.ShieldConfig
-import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -44,60 +43,104 @@ sealed class WebViewCommand {
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: BrowserRepository
-    private val authRepository: AuthRepository
+    private val vaultRepository: VaultRepository
 
     init {
         val database = BrowserDatabase.getInstance(application)
         repository = BrowserRepository(database.browserDao(), application)
-        authRepository = AuthRepository(application)
-    }
-
-    // Account / Auth state
-    val authUser: StateFlow<FirebaseUser?> = authRepository.currentUser
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val isFirebaseConfigured: Boolean get() = authRepository.isFirebaseConfigured
-    val isGoogleSignInConfigured: Boolean get() = authRepository.isGoogleSignInConfigured
-
-    private val _authBusy = MutableStateFlow(false)
-    val authBusy: StateFlow<Boolean> = _authBusy.asStateFlow()
-
-    private val _authError = MutableStateFlow<String?>(null)
-    val authError: StateFlow<String?> = _authError.asStateFlow()
-
-    fun clearAuthError() {
-        _authError.value = null
-    }
-
-    fun signUpWithEmail(email: String, password: String) {
+        vaultRepository = VaultRepository(application)
         viewModelScope.launch {
-            _authBusy.value = true
-            _authError.value = authRepository.signUp(email, password)
-                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
-            _authBusy.value = false
+            vaultRepository.refreshMeta()
+            _biometricAllowed.value = vaultRepository.isBiometricAllowed()
         }
     }
 
-    fun signInWithEmail(email: String, password: String) {
+    // Local vault (device login + saved passwords) state
+    val vaultUnlocked: StateFlow<Boolean> = vaultRepository.unlocked
+    val vaultLogins: StateFlow<List<VaultLogin>> = vaultRepository.logins
+    val hasVaultPassword: StateFlow<Boolean> = vaultRepository.hasPassword
+
+    private val _vaultBusy = MutableStateFlow(false)
+    val vaultBusy: StateFlow<Boolean> = _vaultBusy.asStateFlow()
+
+    private val _vaultError = MutableStateFlow<String?>(null)
+    val vaultError: StateFlow<String?> = _vaultError.asStateFlow()
+
+    fun clearVaultError() {
+        _vaultError.value = null
+    }
+
+    fun setupVaultPassword(password: String, enableBiometric: Boolean) {
         viewModelScope.launch {
-            _authBusy.value = true
-            _authError.value = authRepository.signIn(email, password)
-                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
-            _authBusy.value = false
+            _vaultBusy.value = true
+            _vaultError.value = vaultRepository.setupPassword(password)
+                .exceptionOrNull()?.message
+            if (_vaultError.value == null && enableBiometric) {
+                vaultRepository.setBiometricAllowed(true)
+                _biometricAllowed.value = true
+            }
+            _vaultBusy.value = false
         }
     }
 
-    fun signInWithGoogle(activity: Activity) {
+    fun unlockVault(password: String) {
         viewModelScope.launch {
-            _authBusy.value = true
-            _authError.value = authRepository.signInWithGoogle(activity)
-                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
-            _authBusy.value = false
+            _vaultBusy.value = true
+            _vaultError.value = vaultRepository.unlock(password)
+                .exceptionOrNull()?.message
+            _vaultBusy.value = false
         }
     }
 
-    fun signOut() {
-        authRepository.signOut()
-        _authError.value = null
+    fun unlockVaultWithBiometrics() {
+        viewModelScope.launch {
+            vaultRepository.unlockWithBiometrics()
+        }
+    }
+
+    fun lockVault() {
+        vaultRepository.lock()
+        _vaultError.value = null
+    }
+
+    fun addVaultLogin(site: String, username: String, password: String) {
+        viewModelScope.launch {
+            _vaultError.value = vaultRepository.addLogin(site, username, password)
+                .exceptionOrNull()?.message
+        }
+    }
+
+    fun deleteVaultLogin(id: Long) {
+        viewModelScope.launch {
+            vaultRepository.deleteLogin(id)
+        }
+    }
+
+    private val _vaultLastImportCount = MutableStateFlow<Int?>(null)
+    val vaultLastImportCount: StateFlow<Int?> = _vaultLastImportCount.asStateFlow()
+
+    private val _biometricAllowed = MutableStateFlow(false)
+    val biometricAllowed: StateFlow<Boolean> = _biometricAllowed.asStateFlow()
+
+    fun setBiometricAllowed(allowed: Boolean) {
+        viewModelScope.launch {
+            vaultRepository.setBiometricAllowed(allowed)
+            _biometricAllowed.value = allowed
+        }
+    }
+
+    fun importVaultCsv(content: String) {
+        viewModelScope.launch {
+            _vaultBusy.value = true
+            val result = vaultRepository.importCsv(content)
+            _vaultLastImportCount.value = result.getOrNull()
+            _vaultError.value = result.exceptionOrNull()?.message
+            _vaultBusy.value = false
+        }
+    }
+
+    fun clearVaultImportCount() {
+        _vaultLastImportCount.value = null
     }
 
     // Tabs state

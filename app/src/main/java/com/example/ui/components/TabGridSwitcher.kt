@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,7 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -138,15 +142,25 @@ fun TabGridSwitcher(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(tabs, key = { it.id }) { tab ->
+            itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
                 val isActive = tab.id == activeTabId
-                DismissibleTabCard(
-                    tab = tab,
-                    isActive = isActive,
-                    thumbnail = thumbnails[tab.id],
-                    onSelect = { onSelectTab(tab.id) },
-                    onClose = { onCloseTab(tab.id) }
-                )
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(
+                        animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
+                    ) + scaleIn(
+                        initialScale = 0.92f,
+                        animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
+                    )
+                ) {
+                    DismissibleTabCard(
+                        tab = tab,
+                        isActive = isActive,
+                        thumbnail = thumbnails[tab.id],
+                        onSelect = { onSelectTab(tab.id) },
+                        onClose = { onCloseTab(tab.id) }
+                    )
+                }
             }
         }
     }

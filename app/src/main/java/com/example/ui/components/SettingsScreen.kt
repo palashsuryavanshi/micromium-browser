@@ -2,9 +2,10 @@ package com.example.ui.components
 
 import android.content.Intent
 import android.net.Uri
-import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,8 +36,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,8 +65,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.google.firebase.auth.FirebaseUser
+import com.example.data.VaultLogin
 import com.example.model.DefaultSearchEngines
 import com.example.model.SearchEngine
 
@@ -89,16 +91,24 @@ fun SettingsScreen(
     onSearchEngineSelect: (String) -> Unit,
     onAddCustomSearchEngine: (String, String) -> Unit,
     onRemoveCustomSearchEngine: (String) -> Unit,
-    authUser: FirebaseUser?,
-    isFirebaseConfigured: Boolean,
-    isGoogleSignInConfigured: Boolean,
-    authBusy: Boolean,
-    authError: String?,
-    onSignUp: (email: String, password: String) -> Unit,
-    onSignIn: (email: String, password: String) -> Unit,
-    onGoogleSignIn: (activity: Activity) -> Unit,
-    onSignOut: () -> Unit,
-    onClearAuthError: () -> Unit,
+    vaultHasPassword: Boolean,
+    vaultUnlocked: Boolean,
+    vaultLogins: List<VaultLogin>,
+    vaultBusy: Boolean,
+    vaultError: String?,
+    vaultLastImportCount: Int?,
+    biometricEnrolled: Boolean,
+    biometricAllowed: Boolean,
+    onSetupVaultPassword: (password: String, enableBiometric: Boolean) -> Unit,
+    onUnlockVault: (password: String) -> Unit,
+    onBiometricUnlock: () -> Unit,
+    onSetBiometricAllowed: (allowed: Boolean) -> Unit,
+    onLockVault: () -> Unit,
+    onAddVaultLogin: (site: String, username: String, password: String) -> Unit,
+    onDeleteVaultLogin: (id: Long) -> Unit,
+    onImportVaultCsv: (content: String) -> Unit,
+    onClearVaultError: () -> Unit,
+    onClearVaultImportCount: () -> Unit,
     onBack: () -> Unit
 ) {
     var destination by remember { mutableStateOf<SettingsDestination>(SettingsDestination.Root) }
@@ -110,16 +120,21 @@ fun SettingsScreen(
     AnimatedContent(
         targetState = destination,
         transitionSpec = {
-            // Drilling in slides from the right, going back slides from the left
+            // Drilling in slides from the right, going back slides from the left.
+            // Spring offset for fluid natural motion, quick fade to hide the swap.
             val forward = targetState != SettingsDestination.Root
+            val offsetSpec = spring<IntOffset>(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
             (slideInHorizontally(
-                animationSpec = tween(280),
+                animationSpec = offsetSpec,
                 initialOffsetX = { fullWidth -> if (forward) fullWidth else -fullWidth }
-            ) + fadeIn(animationSpec = tween(280))).togetherWith(
+            ) + fadeIn(animationSpec = tween(200))).togetherWith(
                 slideOutHorizontally(
-                    animationSpec = tween(280),
+                    animationSpec = offsetSpec,
                     targetOffsetX = { fullWidth -> if (forward) -fullWidth else fullWidth }
-                ) + fadeOut(animationSpec = tween(280))
+                ) + fadeOut(animationSpec = tween(200))
             )
         },
         label = "settings_navigation"
@@ -129,7 +144,7 @@ fun SettingsScreen(
             onOpenAppearance = { destination = SettingsDestination.Appearance },
             onOpenSearchEngine = { destination = SettingsDestination.SearchEngine },
             onOpenAbout = { destination = SettingsDestination.About },
-            onOpenAccount = { destination = SettingsDestination.Account },
+            onOpenPasswords = { destination = SettingsDestination.Passwords },
             onBack = onBack
         )
 
@@ -154,17 +169,25 @@ fun SettingsScreen(
                 onBack = { destination = SettingsDestination.Root }
             )
 
-            SettingsDestination.Account -> AuthScreen(
-                user = authUser,
-                isFirebaseConfigured = isFirebaseConfigured,
-                isGoogleSignInConfigured = isGoogleSignInConfigured,
-                isBusy = authBusy,
-                errorMessage = authError,
-                onSignUp = onSignUp,
-                onSignIn = onSignIn,
-                onGoogleSignIn = onGoogleSignIn,
-                onSignOut = onSignOut,
-                onClearError = onClearAuthError,
+            SettingsDestination.Passwords -> PasswordsScreen(
+                hasPassword = vaultHasPassword,
+                unlocked = vaultUnlocked,
+                logins = vaultLogins,
+                busy = vaultBusy,
+                error = vaultError,
+                lastImportCount = vaultLastImportCount,
+                biometricEnrolled = biometricEnrolled,
+                biometricAllowed = biometricAllowed,
+                onSetupPassword = onSetupVaultPassword,
+                onUnlock = onUnlockVault,
+                onBiometricUnlock = onBiometricUnlock,
+                onSetBiometricAllowed = onSetBiometricAllowed,
+                onLock = onLockVault,
+                onAdd = onAddVaultLogin,
+                onDelete = onDeleteVaultLogin,
+                onImportCsv = onImportVaultCsv,
+                onClearError = onClearVaultError,
+                onClearImportCount = onClearVaultImportCount,
                 onBack = { destination = SettingsDestination.Root }
             )
         }
@@ -176,7 +199,7 @@ private sealed class SettingsDestination {
     data object Appearance : SettingsDestination()
     data object SearchEngine : SettingsDestination()
     data object About : SettingsDestination()
-    data object Account : SettingsDestination()
+    data object Passwords : SettingsDestination()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -185,7 +208,7 @@ private fun SettingsRootPage(
     onOpenAppearance: () -> Unit,
     onOpenSearchEngine: () -> Unit,
     onOpenAbout: () -> Unit,
-    onOpenAccount: () -> Unit,
+    onOpenPasswords: () -> Unit,
     onBack: () -> Unit
 ) {
     SettingsScaffold(
@@ -216,11 +239,11 @@ private fun SettingsRootPage(
         Spacer(modifier = Modifier.height(12.dp))
 
         SettingsCategoryRow(
-            icon = Icons.Default.Person,
-            title = "Account",
-            subtitle = "Sign in to sync your data",
-            onClick = onOpenAccount,
-            testTag = "settings_open_account"
+            icon = Icons.Default.Lock,
+            title = "Passwords",
+            subtitle = "On-device password manager",
+            onClick = onOpenPasswords,
+            testTag = "settings_open_passwords"
         )
 
         Spacer(modifier = Modifier.height(12.dp))
