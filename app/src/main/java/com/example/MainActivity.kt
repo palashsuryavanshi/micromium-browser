@@ -106,6 +106,9 @@ fun BrowserApp(
     val bookmarks by viewModel.bookmarks.collectAsState()
     val history by viewModel.history.collectAsState()
     val thumbnails by viewModel.thumbnails.collectAsState()
+    val authUser by viewModel.authUser.collectAsState()
+    val authBusy by viewModel.authBusy.collectAsState()
+    val authError by viewModel.authError.collectAsState()
 
     // Clear Data Dialog state
     var showClearDataDialog by remember { mutableStateOf(false) }
@@ -378,6 +381,16 @@ fun BrowserApp(
             onSearchEngineSelect = { viewModel.setSelectedSearchEngine(it) },
             onAddCustomSearchEngine = { name, url -> viewModel.addCustomSearchEngine(name, url) },
             onRemoveCustomSearchEngine = { viewModel.removeCustomSearchEngine(it) },
+            authUser = authUser,
+            isFirebaseConfigured = viewModel.isFirebaseConfigured,
+            isGoogleSignInConfigured = viewModel.isGoogleSignInConfigured,
+            authBusy = authBusy,
+            authError = authError,
+            onSignUp = { email, password -> viewModel.signUpWithEmail(email, password) },
+            onSignIn = { email, password -> viewModel.signInWithEmail(email, password) },
+            onGoogleSignIn = { activity -> viewModel.signInWithGoogle(activity) },
+            onSignOut = { viewModel.signOut() },
+            onClearAuthError = { viewModel.clearAuthError() },
             onBack = { viewModel.setSettingsDialogVisible(false) }
         )
     }

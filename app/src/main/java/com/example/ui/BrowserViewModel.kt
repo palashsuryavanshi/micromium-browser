@@ -1,10 +1,12 @@
 package com.example.ui
 
+import android.app.Activity
 import android.app.Application
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.AuthRepository
 import com.example.data.BookmarkEntity
 import com.example.data.BrowserDatabase
 import com.example.data.BrowserRepository
@@ -16,6 +18,7 @@ import com.example.privacy.BlockCategory
 import com.example.privacy.BlockedEvent
 import com.example.privacy.PrivacyEngine
 import com.example.privacy.ShieldConfig
+import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,10 +44,60 @@ sealed class WebViewCommand {
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: BrowserRepository
+    private val authRepository: AuthRepository
 
     init {
         val database = BrowserDatabase.getInstance(application)
         repository = BrowserRepository(database.browserDao(), application)
+        authRepository = AuthRepository(application)
+    }
+
+    // Account / Auth state
+    val authUser: StateFlow<FirebaseUser?> = authRepository.currentUser
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val isFirebaseConfigured: Boolean get() = authRepository.isFirebaseConfigured
+    val isGoogleSignInConfigured: Boolean get() = authRepository.isGoogleSignInConfigured
+
+    private val _authBusy = MutableStateFlow(false)
+    val authBusy: StateFlow<Boolean> = _authBusy.asStateFlow()
+
+    private val _authError = MutableStateFlow<String?>(null)
+    val authError: StateFlow<String?> = _authError.asStateFlow()
+
+    fun clearAuthError() {
+        _authError.value = null
+    }
+
+    fun signUpWithEmail(email: String, password: String) {
+        viewModelScope.launch {
+            _authBusy.value = true
+            _authError.value = authRepository.signUp(email, password)
+                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
+            _authBusy.value = false
+        }
+    }
+
+    fun signInWithEmail(email: String, password: String) {
+        viewModelScope.launch {
+            _authBusy.value = true
+            _authError.value = authRepository.signIn(email, password)
+                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
+            _authBusy.value = false
+        }
+    }
+
+    fun signInWithGoogle(activity: Activity) {
+        viewModelScope.launch {
+            _authBusy.value = true
+            _authError.value = authRepository.signInWithGoogle(activity)
+                .exceptionOrNull()?.let { authRepository.friendlyErrorMessage(it) }
+            _authBusy.value = false
+        }
+    }
+
+    fun signOut() {
+        authRepository.signOut()
+        _authError.value = null
     }
 
     // Tabs state

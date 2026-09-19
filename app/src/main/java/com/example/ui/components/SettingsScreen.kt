@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -63,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseUser
 import com.example.model.DefaultSearchEngines
 import com.example.model.SearchEngine
 
@@ -86,6 +89,16 @@ fun SettingsScreen(
     onSearchEngineSelect: (String) -> Unit,
     onAddCustomSearchEngine: (String, String) -> Unit,
     onRemoveCustomSearchEngine: (String) -> Unit,
+    authUser: FirebaseUser?,
+    isFirebaseConfigured: Boolean,
+    isGoogleSignInConfigured: Boolean,
+    authBusy: Boolean,
+    authError: String?,
+    onSignUp: (email: String, password: String) -> Unit,
+    onSignIn: (email: String, password: String) -> Unit,
+    onGoogleSignIn: (activity: Activity) -> Unit,
+    onSignOut: () -> Unit,
+    onClearAuthError: () -> Unit,
     onBack: () -> Unit
 ) {
     var destination by remember { mutableStateOf<SettingsDestination>(SettingsDestination.Root) }
@@ -112,12 +125,13 @@ fun SettingsScreen(
         label = "settings_navigation"
     ) { target ->
         when (target) {
-            SettingsDestination.Root -> SettingsRootPage(
-                onOpenAppearance = { destination = SettingsDestination.Appearance },
-                onOpenSearchEngine = { destination = SettingsDestination.SearchEngine },
-                onOpenAbout = { destination = SettingsDestination.About },
-                onBack = onBack
-            )
+        SettingsDestination.Root -> SettingsRootPage(
+            onOpenAppearance = { destination = SettingsDestination.Appearance },
+            onOpenSearchEngine = { destination = SettingsDestination.SearchEngine },
+            onOpenAbout = { destination = SettingsDestination.About },
+            onOpenAccount = { destination = SettingsDestination.Account },
+            onBack = onBack
+        )
 
             SettingsDestination.Appearance -> AppearanceSettingsPage(
                 toolbarAtBottom = toolbarAtBottom,
@@ -139,6 +153,20 @@ fun SettingsScreen(
             SettingsDestination.About -> AboutSettingsPage(
                 onBack = { destination = SettingsDestination.Root }
             )
+
+            SettingsDestination.Account -> AuthScreen(
+                user = authUser,
+                isFirebaseConfigured = isFirebaseConfigured,
+                isGoogleSignInConfigured = isGoogleSignInConfigured,
+                isBusy = authBusy,
+                errorMessage = authError,
+                onSignUp = onSignUp,
+                onSignIn = onSignIn,
+                onGoogleSignIn = onGoogleSignIn,
+                onSignOut = onSignOut,
+                onClearError = onClearAuthError,
+                onBack = { destination = SettingsDestination.Root }
+            )
         }
     }
 }
@@ -148,6 +176,7 @@ private sealed class SettingsDestination {
     data object Appearance : SettingsDestination()
     data object SearchEngine : SettingsDestination()
     data object About : SettingsDestination()
+    data object Account : SettingsDestination()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,6 +185,7 @@ private fun SettingsRootPage(
     onOpenAppearance: () -> Unit,
     onOpenSearchEngine: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenAccount: () -> Unit,
     onBack: () -> Unit
 ) {
     SettingsScaffold(
@@ -181,6 +211,16 @@ private fun SettingsRootPage(
             subtitle = "Choose your default search engine",
             onClick = onOpenSearchEngine,
             testTag = "settings_open_search_engine"
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsCategoryRow(
+            icon = Icons.Default.Person,
+            title = "Account",
+            subtitle = "Sign in to sync your data",
+            onClick = onOpenAccount,
+            testTag = "settings_open_account"
         )
 
         Spacer(modifier = Modifier.height(12.dp))
