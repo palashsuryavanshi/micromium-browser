@@ -1,0 +1,7 @@
+{
+  "name": "Micromium",
+  "description": "A fast Chromium-style Android web browser with hardcoded adblock, tracker protection, and privacy controls for a clean browsing experience.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
