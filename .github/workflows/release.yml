@@ -4,12 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # Skip gracefully until signing secrets exist (releases can be published manually meanwhile).
+    if: ${{ secrets.KEYSTORE_BASE64 != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out
