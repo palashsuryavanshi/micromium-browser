@@ -1067,8 +1067,15 @@ private fun createCustomWebView(
                 if (request == null) return null
                 val url = request.url.toString()
 
-                // Check against hardcoded AdBlock & Tracking Protection lists
-                val blockResult = PrivacyEngine.shouldBlock(url, shieldConfig)
+                // Check against hardcoded AdBlock & Tracking Protection lists.
+                // YouTube pages pass their context so YouTube ad blocking stays
+                // on its own switch and never slows down video loading.
+                val pageHost = runCatching { Uri.parse(tab.url).host.orEmpty() }.getOrDefault("")
+                val blockResult = PrivacyEngine.shouldBlock(
+                    url,
+                    shieldConfig,
+                    isYouTubePage = PrivacyEngine.isYouTubeHost(pageHost)
+                )
                 if (blockResult.isBlocked) {
                     val uri = request.url
                     val host = uri.host ?: url

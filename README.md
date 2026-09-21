@@ -17,6 +17,7 @@ Download the latest signed APK from [**GitHub Releases**](https://github.com/pal
 ### 🛡️ Privacy Shield
 - Plain-language protection verdict per page ("Blocked 12 hidden ads and trackers…")
 - Ad blocking (DoubleClick, AdSense, Outbrain & ad exchanges)
+- Separate YouTube-ads switch (off by default — blocking YouTube ads can make videos load slowly)
 - Cross-site tracker protection (analytics, pixels, session recording, fingerprinters)
 - Tracking-link cleaning (`utm_*`, `fbclid`, `gclid`, …)
 - Third-party cookie blocking

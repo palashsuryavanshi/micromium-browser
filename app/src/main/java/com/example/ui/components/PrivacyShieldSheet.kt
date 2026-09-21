@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -275,6 +276,16 @@ fun PrivacyShieldSheet(
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(blockAds = it)) },
                 testTag = "toggle_block_ads"
+            )
+
+            ShieldToggleItem(
+                icon = Icons.Default.SmartDisplay,
+                title = "Block YouTube ads",
+                subtitle = "Separate switch — turning it on may make videos load slowly",
+                checked = shieldConfig.blockYouTubeAds,
+                enabled = shieldConfig.isShieldEnabled,
+                onCheckedChange = { onConfigChange(shieldConfig.copy(blockYouTubeAds = it)) },
+                testTag = "toggle_block_youtube_ads"
             )
 
             ShieldToggleItem(

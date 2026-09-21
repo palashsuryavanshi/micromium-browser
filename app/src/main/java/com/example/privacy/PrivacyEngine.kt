@@ -32,7 +32,10 @@ data class ShieldConfig(
     val blockThirdPartyCookies: Boolean = true,
     val cosmeticFiltering: Boolean = true,
     val forceHttps: Boolean = true,
-    val safeBrowsingEnabled: Boolean = true
+    val safeBrowsingEnabled: Boolean = true,
+    // Separate from normal ad blocking: YouTube ad blocking can make videos
+    // load very slowly, so it is off by default and never slows playback.
+    val blockYouTubeAds: Boolean = false
 )
 
 object PrivacyEngine {
@@ -218,6 +221,31 @@ object PrivacyEngine {
         "crypto-loot.com"
     )
 
+    // YouTube hosts (watch pages, embeds, shortened links)
+    private val YOUTUBE_HOSTS = setOf(
+        "youtube.com",
+        "youtu.be",
+        "youtube-nocookie.com",
+        "youtube.googleapis.com"
+    )
+
+    // YouTube ad-signalling beacons: fire-and-forget requests that report ad
+    // playback. Only ever blocked when the YouTube switch is on, so normal
+    // video loading is never touched.
+    private val YOUTUBE_AD_BEACONS = listOf(
+        "/api/stats/ads",
+        "/pagead",
+        "/ptracking",
+        "/ad_event"
+    )
+
+    /** True for youtube.com, youtu.be, youtube-nocookie.com and their subdomains. */
+    fun isYouTubeHost(host: String): Boolean {
+        val lower = host.lowercase(Locale.ROOT)
+        if (YOUTUBE_HOSTS.contains(lower)) return true
+        return YOUTUBE_HOSTS.any { lower.endsWith(".$it") }
+    }
+
     // URL Path Patterns that represent ad scripts or tracking beacons
     private val AD_PATH_PATTERNS = listOf(
         Regex("/ads?\\.js", RegexOption.IGNORE_CASE),
@@ -327,8 +355,17 @@ object PrivacyEngine {
 
     /**
      * Checks whether a requested URL should be blocked based on current Shield configuration.
+     *
+     * @param isYouTubePage true when the page making the request is a YouTube page.
+     * YouTube ad blocking is a separate switch ([ShieldConfig.blockYouTubeAds]) because
+     * it can make videos load very slowly; when it is off, ad rules are skipped for
+     * YouTube traffic while tracker and fingerprint protection stay active.
      */
-    fun shouldBlock(url: String, config: ShieldConfig): BlockResult {
+    fun shouldBlock(
+        url: String,
+        config: ShieldConfig,
+        isYouTubePage: Boolean = false
+    ): BlockResult {
         if (!config.isShieldEnabled) {
             return BlockResult(isBlocked = false)
         }
@@ -341,8 +378,9 @@ object PrivacyEngine {
 
         val host = uri.host?.lowercase(Locale.ROOT) ?: return BlockResult(isBlocked = false)
         val path = uri.path ?: ""
+        val skipYouTubeAds = isYouTubePage && !config.blockYouTubeAds
 
-        // Check Fingerprinting & Cryptominers
+        // Check Fingerprinting & Cryptominers (always, including YouTube)
         if (matchesDomain(host, FINGERPRINT_HOSTS)) {
             return BlockResult(
                 isBlocked = true,
@@ -351,8 +389,21 @@ object PrivacyEngine {
             )
         }
 
-        // Check Ad Networks
-        if (config.blockAds) {
+        // YouTube ad beacons: only when the dedicated switch is on.
+        if (isYouTubePage && config.blockYouTubeAds && isYouTubeHost(host)) {
+            val lowerPath = path.lowercase(Locale.ROOT)
+            val beacon = YOUTUBE_AD_BEACONS.firstOrNull { lowerPath.contains(it) }
+            if (beacon != null) {
+                return BlockResult(
+                    isBlocked = true,
+                    category = BlockCategory.AD,
+                    matchedRule = "youtube:$beacon"
+                )
+            }
+        }
+
+        // Check Ad Networks (skipped for YouTube traffic unless the switch is on)
+        if (config.blockAds && !skipYouTubeAds) {
             if (matchesDomain(host, AD_HOSTS)) {
                 return BlockResult(
                     isBlocked = true,
@@ -362,7 +413,7 @@ object PrivacyEngine {
             }
         }
 
-        // Check Trackers & Analytics
+        // Check Trackers & Analytics (always, including YouTube)
         if (config.blockTrackers) {
             if (matchesDomain(host, TRACKER_HOSTS)) {
                 return BlockResult(
@@ -373,8 +424,8 @@ object PrivacyEngine {
             }
         }
 
-        // Check Script Path Patterns
-        if (config.blockAds || config.blockTrackers) {
+        // Check Script Path Patterns (skipped for YouTube traffic unless the switch is on)
+        if ((config.blockAds || config.blockTrackers) && !skipYouTubeAds) {
             for (pattern in AD_PATH_PATTERNS) {
                 if (pattern.containsMatchIn(path)) {
                     val category = if (path.contains("analytics", ignoreCase = true) || path.contains("gtm", ignoreCase = true)) {

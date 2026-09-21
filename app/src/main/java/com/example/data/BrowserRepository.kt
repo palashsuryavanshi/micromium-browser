@@ -214,7 +214,8 @@ class BrowserRepository(
             blockThirdPartyCookies = prefs.getBoolean("block_third_party_cookies", true),
             cosmeticFiltering = prefs.getBoolean("cosmetic_filtering", true),
             forceHttps = prefs.getBoolean("force_https", true),
-            safeBrowsingEnabled = prefs.getBoolean("safe_browsing", true)
+            safeBrowsingEnabled = prefs.getBoolean("safe_browsing", true),
+            blockYouTubeAds = prefs.getBoolean("block_youtube_ads", false)
         )
     }
 
@@ -229,6 +230,7 @@ class BrowserRepository(
             .putBoolean("cosmetic_filtering", newConfig.cosmeticFiltering)
             .putBoolean("force_https", newConfig.forceHttps)
             .putBoolean("safe_browsing", newConfig.safeBrowsingEnabled)
+            .putBoolean("block_youtube_ads", newConfig.blockYouTubeAds)
             .apply()
     }
 
