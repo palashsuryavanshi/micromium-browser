@@ -6,6 +6,12 @@
 
 <p align="center">A privacy-first Android browser with a built-in tracking-protection shield, live tab previews, and a clean Material 3 interface.</p>
 
+## ⬇️ Get the app (Alpha)
+
+Download the latest signed APK from [**GitHub Releases**](https://github.com/palashsuryavanshi/micromium-browser/releases), then install it on your phone (you'll need to allow "Install unknown apps" once when prompted — this is normal for apps installed outside the Play Store).
+
+> ⚠️ Alpha: expect rough edges. Your bookmarks, history, passwords, and settings stay on your device and are never uploaded anywhere.
+
 ## Features
 
 ### 🛡️ Privacy Shield
@@ -23,7 +29,8 @@
 - Reader view for long articles
 - Smart omnibox: type a URL or a search query, with search suggestions UI
 - Multiple search engines (DuckDuckGo, Google, Brave) plus custom engines you can add/remove
-- Bookmarks (with folders) and full searchable browsing history, stored on-device (Room)
+- Bookmarks manager with folders, rename, delete (with confirmation), and open-in-tab
+- Searchable browsing history with per-item delete and clear-all, stored on-device (Room)
 - In-app downloads list with open/remove, plus system viewer fallback
 - Share page via system share sheet or QR code
 - Incognito tabs
