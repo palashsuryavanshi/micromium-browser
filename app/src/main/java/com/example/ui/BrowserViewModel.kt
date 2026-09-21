@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.ImageBitmap
@@ -38,7 +39,18 @@ sealed class WebViewCommand {
     data class Reload(val tabId: String) : WebViewCommand()
     data class Stop(val tabId: String) : WebViewCommand()
     data class CaptureThumbnail(val tabId: String) : WebViewCommand()
+    data class SetReaderMode(val tabId: String, val enabled: Boolean) : WebViewCommand()
+    data class ShowFindBar(val tabId: String) : WebViewCommand()
+    data class PrintPage(val tabId: String) : WebViewCommand()
 }
+
+/** Offered when a login form is submitted on a page and isn't saved yet. */
+data class SaveLoginPrompt(
+    val site: String,
+    val host: String,
+    val username: String,
+    val password: String
+)
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -143,6 +155,47 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _vaultLastImportCount.value = null
     }
 
+    // Save-password prompt (login detected on a page)
+    private val _saveLoginPrompt = MutableStateFlow<SaveLoginPrompt?>(null)
+    val saveLoginPrompt: StateFlow<SaveLoginPrompt?> = _saveLoginPrompt.asStateFlow()
+
+    fun onLoginDetected(url: String, username: String, password: String) {
+        if (password.isEmpty()) return
+        viewModelScope.launch {
+            if (!vaultRepository.unlocked.value) return@launch
+            val host = VaultRepository.hostOf(url)
+            if (host.isEmpty()) return@launch
+            if (vaultRepository.isNeverSave(host)) return@launch
+            if (vaultRepository.hasLogin(host, username.trim())) return@launch
+            _saveLoginPrompt.value = SaveLoginPrompt(
+                site = url,
+                host = host,
+                username = username.trim(),
+                password = password
+            )
+        }
+    }
+
+    fun confirmSaveLogin() {
+        val prompt = _saveLoginPrompt.value ?: return
+        viewModelScope.launch {
+            vaultRepository.addLogin(prompt.site, prompt.username, prompt.password)
+            _saveLoginPrompt.value = null
+        }
+    }
+
+    fun dismissSaveLogin() {
+        _saveLoginPrompt.value = null
+    }
+
+    fun neverSaveLogin() {
+        val prompt = _saveLoginPrompt.value ?: return
+        viewModelScope.launch {
+            vaultRepository.addNeverSaveHost(prompt.host)
+            _saveLoginPrompt.value = null
+        }
+    }
+
     // Tabs state
     private val initialTab = BrowserTab()
     private val _tabs = MutableStateFlow<List<BrowserTab>>(listOf(initialTab))
@@ -182,7 +235,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val bookmarks: StateFlow<List<BookmarkEntity>> = repository.bookmarks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val rootBookmarks: StateFlow<List<BookmarkEntity>> = repository.rootBookmarks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allFolders: StateFlow<List<BookmarkEntity>> = repository.allFolders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun bookmarksInFolder(folderId: Long): StateFlow<List<BookmarkEntity>> =
+        repository.bookmarksInFolder(folderId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val history: StateFlow<List<HistoryEntity>> = repository.history
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _searchHistoryQuery = MutableStateFlow("")
+    val searchHistoryQuery: StateFlow<String> = _searchHistoryQuery.asStateFlow()
+
+    val searchHistory: StateFlow<List<HistoryEntity>> = _searchHistoryQuery
+        .flatMapLatest { query ->
+            if (query.isBlank()) {
+                kotlinx.coroutines.flow.flowOf(emptyList())
+            } else {
+                repository.searchHistory(query)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val shieldConfig: StateFlow<ShieldConfig> = repository.shieldConfig
@@ -238,6 +314,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     title = finalUrl,
                     isLoading = true,
                     progress = 10,
+                    isReaderMode = false,
                     pageBlockedAds = 0,
                     pageBlockedTrackers = 0,
                     blockedEvents = emptyList()
@@ -304,6 +381,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val index = currentTabs.indexOfFirst { it.id == tabId }
         if (index == -1) return
 
+        pushRecentlyClosed(listOf(currentTabs[index]))
+        _thumbnails.value = _thumbnails.value - tabId
         val updatedTabs = currentTabs.filter { it.id != tabId }
         if (updatedTabs.isEmpty()) {
             val freshTab = BrowserTab()
@@ -320,12 +399,55 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun closeAllTabs() {
-        val freshTab = BrowserTab()
-        _tabs.value = listOf(freshTab)
-        _activeTabId.value = freshTab.id
-        _omniboxText.value = ""
+    /** Closes only the regular or only the incognito group; stays in the switcher. */
+    fun closeTabsByMode(incognito: Boolean) {
+        val currentTabs = _tabs.value
+        val group = currentTabs.filter { it.isIncognito == incognito }
+        if (group.isEmpty()) return
+
+        pushRecentlyClosed(group.filter { !it.isStartPage })
+        _thumbnails.value = _thumbnails.value - group.map { it.id }.toSet()
+        val remaining = currentTabs.filter { it.isIncognito != incognito }
+        if (remaining.isEmpty()) {
+            val freshTab = BrowserTab()
+            _tabs.value = listOf(freshTab)
+            _activeTabId.value = freshTab.id
+            _omniboxText.value = ""
+        } else {
+            _tabs.value = remaining
+            val activeClosed = group.any { it.id == _activeTabId.value }
+            if (activeClosed) {
+                val newActive = remaining.last()
+                _activeTabId.value = newActive.id
+                _omniboxText.value = if (newActive.isStartPage) "" else newActive.url
+            }
+        }
+    }
+
+    // Recently closed tabs (restorable, newest last, capped).
+    private val _recentlyClosed = MutableStateFlow<List<BrowserTab>>(emptyList())
+    val recentlyClosed: StateFlow<List<BrowserTab>> = _recentlyClosed.asStateFlow()
+
+    private fun pushRecentlyClosed(tabs: List<BrowserTab>) {
+        if (tabs.isEmpty()) return
+        _recentlyClosed.value = (_recentlyClosed.value + tabs).takeLast(10)
+    }
+
+    fun reopenLastClosedTab() {
+        val stack = _recentlyClosed.value
+        if (stack.isEmpty()) return
+        val tab = stack.last()
+        _recentlyClosed.value = stack.dropLast(1)
+        val restored = tab.copy(id = java.util.UUID.randomUUID().toString())
+        _tabs.value = _tabs.value + restored
+        _activeTabId.value = restored.id
         _isTabSwitcherVisible.value = false
+        _omniboxText.value = if (restored.isStartPage) "" else restored.url
+        if (!restored.isStartPage && restored.url.isNotBlank()) {
+            viewModelScope.launch {
+                _webViewCommands.emit(WebViewCommand.LoadUrl(restored.id, restored.url))
+            }
+        }
     }
 
     // WebView Callbacks
@@ -356,6 +478,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     canGoForward = canGoForward
                 )
             } else tab
+        }
+
+        // Apply the stored per-site desktop preference (toggle keeps both in
+        // sync, so any divergence here means a stale flag from another site).
+        val host = VaultRepository.hostOf(url)
+        if (host.isNotBlank()) {
+            val preferred = repository.isDesktopSite(host)
+            val current = _tabs.value.firstOrNull { it.id == tabId }
+            if (current != null && current.isDesktopSite != preferred) {
+                _tabs.value = _tabs.value.map { tab ->
+                    if (tab.id == tabId) tab.copy(isDesktopSite = preferred) else tab
+                }
+            }
         }
 
         if (_activeTabId.value == tabId && !_isOmniboxEditing.value) {
@@ -419,6 +554,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun showFindBar(tabId: String) {
+        viewModelScope.launch {
+            _webViewCommands.emit(WebViewCommand.ShowFindBar(tabId))
+        }
+    }
+
+    fun printPage(tabId: String) {
+        viewModelScope.launch {
+            _webViewCommands.emit(WebViewCommand.PrintPage(tabId))
+        }
+    }
+
+    val textZoom: StateFlow<Int> = repository.textZoom
+
+    fun setTextZoom(zoom: Int) {
+        repository.setTextZoom(zoom)
+    }
+
     fun goHome() {
         val tabId = _activeTabId.value
         _tabs.value = _tabs.value.map { tab ->
@@ -435,12 +588,46 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _isOmniboxEditing.value = false
     }
 
-    fun toggleDesktopSite() {
+    fun toggleReaderMode() {
+        val tab = activeTab.value ?: return
+        if (tab.isStartPage) return
         val tabId = _activeTabId.value
-        _tabs.value = _tabs.value.map { tab ->
-            if (tab.id == tabId) {
-                tab.copy(isDesktopSite = !tab.isDesktopSite)
-            } else tab
+        if (tab.isReaderMode) {
+            // Leaving reader view restores the original page.
+            _tabs.value = _tabs.value.map { t ->
+                if (t.id == tabId) t.copy(isReaderMode = false) else t
+            }
+            reload()
+        } else {
+            _tabs.value = _tabs.value.map { t ->
+                if (t.id == tabId) t.copy(isReaderMode = true) else t
+            }
+            viewModelScope.launch {
+                _webViewCommands.emit(WebViewCommand.SetReaderMode(tabId, true))
+            }
+        }
+    }
+
+    /** Called when the page has no extractable article text. */
+    fun onReaderUnsupported() {
+        val tabId = _activeTabId.value
+        _tabs.value = _tabs.value.map { t ->
+            if (t.id == tabId) t.copy(isReaderMode = false) else t
+        }
+    }
+
+    fun toggleDesktopSite() {
+        val tab = activeTab.value ?: return
+        val tabId = _activeTabId.value
+        val newValue = !tab.isDesktopSite
+        val host = VaultRepository.hostOf(tab.url)
+        if (host.isNotBlank()) {
+            repository.setDesktopSite(host, newValue)
+        }
+        _tabs.value = _tabs.value.map { t ->
+            if (t.id == tabId) {
+                t.copy(isDesktopSite = newValue)
+            } else t
         }
         reload()
     }
@@ -465,15 +652,48 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun addBookmark(title: String, url: String, parentId: Long? = null) {
+        viewModelScope.launch {
+            repository.addBookmark(title, url, parentId)
+        }
+    }
+
+    fun addFolder(title: String, parentId: Long? = null) {
+        viewModelScope.launch {
+            repository.addFolder(title, parentId)
+        }
+    }
+
+    fun updateBookmark(bookmark: BookmarkEntity) {
+        viewModelScope.launch {
+            repository.updateBookmark(bookmark)
+        }
+    }
+
     fun removeBookmark(id: Long) {
         viewModelScope.launch {
             repository.removeBookmark(id)
         }
     }
 
+    fun moveBookmark(id: Long, newParentId: Long?, newSortOrder: Int) {
+        viewModelScope.launch {
+            repository.moveBookmark(id, newParentId, newSortOrder)
+        }
+    }
+
     fun deleteHistoryItem(id: Long) {
         viewModelScope.launch {
             repository.deleteHistoryItem(id)
+        }
+    }
+
+    /** Forgets one site: removes its history entries (cookies/storage handled by the WebView layer). */
+    fun forgetSite(url: String) {
+        val host = runCatching { android.net.Uri.parse(url).host.orEmpty() }.getOrDefault("")
+        if (host.isBlank()) return
+        viewModelScope.launch {
+            repository.forgetSiteHistory(host)
         }
     }
 
@@ -496,6 +716,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 WebStorage.getInstance().deleteAllData()
             }
         }
+    }
+
+    fun clearHistoryBefore(days: Int) {
+        viewModelScope.launch {
+            repository.clearHistoryBefore(days)
+        }
+    }
+
+    fun searchHistory(query: String) {
+        _searchHistoryQuery.value = query
     }
 
     // UI Dialog & Switcher Toggles

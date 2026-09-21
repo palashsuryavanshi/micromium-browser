@@ -31,7 +31,8 @@ data class ShieldConfig(
     val stripTrackingParams: Boolean = true,
     val blockThirdPartyCookies: Boolean = true,
     val cosmeticFiltering: Boolean = true,
-    val forceHttps: Boolean = true
+    val forceHttps: Boolean = true,
+    val safeBrowsingEnabled: Boolean = true
 )
 
 object PrivacyEngine {

@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,18 +25,80 @@ class BrowserRepository(
     // Bookmarks
     val bookmarks: Flow<List<BookmarkEntity>> = browserDao.getAllBookmarks()
 
-    suspend fun addBookmark(title: String, url: String) = withContext(Dispatchers.IO) {
-        browserDao.insertBookmark(BookmarkEntity(title = title, url = url))
+    /** Bookmarks in the root folder (no parent). */
+    val rootBookmarks: Flow<List<BookmarkEntity>> = browserDao.getBookmarksInFolder(null)
+
+    /** Bookmarks inside a specific folder. */
+    fun bookmarksInFolder(folderId: Long): Flow<List<BookmarkEntity>> = browserDao.getBookmarksInFolder(folderId)
+
+    /** All folders (for folder picker). */
+    val allFolders: Flow<List<BookmarkEntity>> = browserDao.getAllFolders()
+
+    suspend fun addBookmark(title: String, url: String, parentId: Long? = null) = withContext(Dispatchers.IO) {
+        val maxOrder = browserDao.getMaxSortOrder(parentId) ?: -1
+        browserDao.insertBookmark(BookmarkEntity(
+            title = title,
+            url = url,
+            parentId = parentId,
+            sortOrder = maxOrder + 1
+        ))
+    }
+
+    suspend fun addFolder(title: String, parentId: Long? = null) = withContext(Dispatchers.IO) {
+        val maxOrder = browserDao.getMaxSortOrder(parentId) ?: -1
+        browserDao.insertBookmark(BookmarkEntity(
+            title = title,
+            url = "",
+            parentId = parentId,
+            sortOrder = maxOrder + 1,
+            isFolder = true
+        ))
+    }
+
+    suspend fun updateBookmark(bookmark: BookmarkEntity) = withContext(Dispatchers.IO) {
+        browserDao.updateBookmark(bookmark)
     }
 
     suspend fun removeBookmark(id: Long) = withContext(Dispatchers.IO) {
-        browserDao.deleteBookmarkById(id)
+        // If it's a folder, recursively delete children first
+        val allBookmarks = browserDao.getAllBookmarks().first()
+        val bookmark = allBookmarks.firstOrNull { it.id == id }
+        if (bookmark?.isFolder == true) {
+            deleteFolderRecursive(id)
+        } else {
+            browserDao.deleteBookmarkById(id)
+        }
+    }
+
+    private suspend fun deleteFolderRecursive(folderId: Long) {
+        val children = browserDao.getBookmarksInFolder(folderId).first()
+        for (child in children) {
+            if (child.isFolder) {
+                deleteFolderRecursive(child.id)
+            } else {
+                browserDao.deleteBookmarkById(child.id)
+            }
+        }
+        browserDao.deleteBookmarkById(folderId)
+    }
+
+    suspend fun moveBookmark(id: Long, newParentId: Long?, newSortOrder: Int) = withContext(Dispatchers.IO) {
+        val allBookmarks = browserDao.getAllBookmarks().first()
+        val bookmark = allBookmarks.firstOrNull { it.id == id }
+        if (bookmark != null) {
+            browserDao.updateBookmark(bookmark.copy(
+                parentId = newParentId,
+                sortOrder = newSortOrder
+            ))
+        }
     }
 
     fun isBookmarked(url: String): Flow<Boolean> = browserDao.isBookmarked(url)
 
     // History
     val history: Flow<List<HistoryEntity>> = browserDao.getHistory()
+
+    fun searchHistory(query: String): Flow<List<HistoryEntity>> = browserDao.searchHistory(query)
 
     suspend fun addHistory(title: String, url: String) = withContext(Dispatchers.IO) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -46,8 +110,20 @@ class BrowserRepository(
         browserDao.deleteHistoryById(id)
     }
 
+    /** Removes history entries belonging to one site (used by "Forget this site"). */
+    suspend fun forgetSiteHistory(host: String) = withContext(Dispatchers.IO) {
+        if (host.isNotBlank()) {
+            browserDao.deleteHistoryForHost(host)
+        }
+    }
+
     suspend fun clearHistory() = withContext(Dispatchers.IO) {
         browserDao.clearAllHistory()
+    }
+
+    suspend fun clearHistoryBefore(days: Int) = withContext(Dispatchers.IO) {
+        val cutoff = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
+        browserDao.deleteHistoryBefore(cutoff)
     }
 
     // Shield configuration state
@@ -83,6 +159,37 @@ class BrowserRepository(
         prefs.edit().putBoolean("dark_theme", dark).apply()
     }
 
+    // Page text zoom in percent (50..200, 100 = default).
+    private val _textZoom = MutableStateFlow(prefs.getInt("text_zoom", 100).coerceIn(50, 200))
+    val textZoom: StateFlow<Int> = _textZoom.asStateFlow()
+
+    fun setTextZoom(zoom: Int) {
+        val clamped = zoom.coerceIn(50, 200)
+        _textZoom.value = clamped
+        prefs.edit().putInt("text_zoom", clamped).apply()
+    }
+
+    // Per-site desktop mode: hosts the user pinned to the desktop layout.
+    private val _desktopHosts = MutableStateFlow(loadDesktopHosts())
+    val desktopHosts: StateFlow<Set<String>> = _desktopHosts.asStateFlow()
+
+    fun isDesktopSite(host: String): Boolean =
+        host.lowercase().let { it.isNotBlank() && _desktopHosts.value.contains(it) }
+
+    fun setDesktopSite(host: String, enabled: Boolean) {
+        val key = host.lowercase()
+        if (key.isBlank()) return
+        val updated = _desktopHosts.value.toMutableSet()
+        if (enabled) updated.add(key) else updated.remove(key)
+        _desktopHosts.value = updated
+        prefs.edit().putStringSet("desktop_hosts", updated).apply()
+    }
+
+    private fun loadDesktopHosts(): Set<String> =
+        prefs.getStringSet("desktop_hosts", emptySet())
+            ?.map { it.lowercase() }
+            ?.toSet() ?: emptySet()
+
     /** Persists every onboarding answer keyed by its preference name. */
     fun applyOnboardingAnswers(answers: Map<String, Boolean>) {
         prefs.edit().apply {
@@ -106,7 +213,8 @@ class BrowserRepository(
             stripTrackingParams = prefs.getBoolean("strip_tracking_params", true),
             blockThirdPartyCookies = prefs.getBoolean("block_third_party_cookies", true),
             cosmeticFiltering = prefs.getBoolean("cosmetic_filtering", true),
-            forceHttps = prefs.getBoolean("force_https", true)
+            forceHttps = prefs.getBoolean("force_https", true),
+            safeBrowsingEnabled = prefs.getBoolean("safe_browsing", true)
         )
     }
 
@@ -120,6 +228,7 @@ class BrowserRepository(
             .putBoolean("block_third_party_cookies", newConfig.blockThirdPartyCookies)
             .putBoolean("cosmetic_filtering", newConfig.cosmeticFiltering)
             .putBoolean("force_https", newConfig.forceHttps)
+            .putBoolean("safe_browsing", newConfig.safeBrowsingEnabled)
             .apply()
     }
 
@@ -142,9 +251,8 @@ class BrowserRepository(
         prefs.edit().putInt("total_ads_blocked", 0).putInt("total_trackers_blocked", 0).apply()
     }
 
-    // Search engine selection
-    private val _selectedSearchEngineUrl = MutableStateFlow(
-        prefs.getString("search_engine_url", DefaultSearchEngines.DUCKDUCKGO.urlTemplate)!!
+        // Search engine selection
+    private val _selectedSearchEngineUrl = MutableStateFlow(        prefs.getString("search_engine_url", DefaultSearchEngines.DUCKDUCKGO.urlTemplate)!!
     )
     val selectedSearchEngineUrl: StateFlow<String> = _selectedSearchEngineUrl.asStateFlow()
 

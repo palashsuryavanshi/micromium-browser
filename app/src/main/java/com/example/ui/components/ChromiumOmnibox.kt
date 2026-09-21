@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -9,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
@@ -53,6 +58,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -75,7 +82,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -114,12 +123,18 @@ fun ChromiumOmnibox(
     onBookmarksClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onToggleDesktopSite: () -> Unit,
+    onToggleReaderMode: () -> Unit,
+    onFindInPageClick: (tabId: String) -> Unit,
+    onPrintClick: (tabId: String) -> Unit,
+    recentlyClosedCount: Int,
+    onReopenClosedTab: () -> Unit,
     onClearDataClick: () -> Unit,
     onShareClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
+    var showQrDialog by remember { mutableStateOf(false) }
     // Menu open animation progress (0 = closed, 1 = open): springy scale + fade from top-end
     val menuOpenProgress by animateFloatAsState(
         targetValue = if (isMenuExpanded) 1f else 0f,
@@ -131,6 +146,7 @@ fun ChromiumOmnibox(
     )
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
 
     LaunchedEffect(isEditing) {
         if (isEditing) {
@@ -517,6 +533,18 @@ fun ChromiumOmnibox(
                         modifier = Modifier.testTag("menu_history")
                     )
 
+                    DropdownMenuItem(
+                        text = { Text("Downloads") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            openSystemDownloads(context)
+                        },
+                        modifier = Modifier.testTag("menu_downloads")
+                    )
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     DropdownMenuItem(
@@ -545,6 +573,76 @@ fun ChromiumOmnibox(
                             onToggleDesktopSite()
                         },
                         modifier = Modifier.testTag("menu_desktop_site")
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Reader view")
+                                if (activeTab?.isReaderMode == true) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Enabled",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Article, contentDescription = null)
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            onToggleReaderMode()
+                        },
+                        enabled = activeTab?.isStartPage == false,
+                        modifier = Modifier.testTag("menu_reader_view")
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Find in page") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                        },
+                        onClick = {
+                            isMenuExpanded = false
+                            activeTab?.id?.let { onFindInPageClick(it) }
+                        },
+                        modifier = Modifier.testTag("menu_find_in_page")
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Print page") },
+                        onClick = {
+                            isMenuExpanded = false
+                            activeTab?.id?.let { onPrintClick(it) }
+                        },
+                        modifier = Modifier.testTag("menu_print")
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Share via QR code") },
+                        onClick = {
+                            isMenuExpanded = false
+                            showQrDialog = true
+                        },
+                        enabled = !activeTab?.url.isNullOrBlank(),
+                        modifier = Modifier.testTag("menu_qr_share")
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Reopen closed tab") },
+                        onClick = {
+                            isMenuExpanded = false
+                            onReopenClosedTab()
+                        },
+                        enabled = recentlyClosedCount > 0,
+                        modifier = Modifier.testTag("menu_reopen_tab")
                     )
 
                     DropdownMenuItem(
@@ -587,5 +685,67 @@ fun ChromiumOmnibox(
                 }
             }
         }
+    }
+
+    // QR code sharing dialog for the current page URL
+    if (showQrDialog) {
+        val qrUrl = activeTab?.url.orEmpty()
+        val qrBitmap = remember(qrUrl) { qrBitmapFor(qrUrl, 512) }
+        AlertDialog(
+            onDismissRequest = { showQrDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showQrDialog = false }) { Text("Close") }
+            },
+            title = { Text("Share via QR code") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (qrBitmap != null) {
+                        Image(
+                            bitmap = qrBitmap,
+                            contentDescription = "QR code for $qrUrl",
+                            modifier = Modifier
+                                .size(240.dp)
+                                .testTag("qr_image")
+                        )
+                    } else {
+                        Text("Could not generate a code for this page.")
+                    }
+                    Text(
+                        text = qrUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        )
+    }
+}
+
+/** Renders [content] as a black-on-white QR bitmap, or null when it fails. */
+private fun qrBitmapFor(
+    content: String,
+    sizePx: Int
+): androidx.compose.ui.graphics.ImageBitmap? {
+    if (content.isBlank()) return null
+    return try {
+        val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+            content,
+            com.google.zxing.BarcodeFormat.QR_CODE,
+            sizePx,
+            sizePx
+        )
+        val pixels = IntArray(sizePx * sizePx)
+        val black = android.graphics.Color.BLACK
+        val white = android.graphics.Color.WHITE
+        for (y in 0 until sizePx) {
+            for (x in 0 until sizePx) {
+                pixels[y * sizePx + x] = if (matrix.get(x, y)) black else white
+            }
+        }
+        Bitmap.createBitmap(pixels, sizePx, sizePx, Bitmap.Config.ARGB_8888).asImageBitmap()
+    } catch (e: Exception) {
+        null
     }
 }

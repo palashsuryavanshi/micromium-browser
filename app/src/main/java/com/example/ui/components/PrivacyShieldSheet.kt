@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.ButtonDefaults
@@ -143,6 +144,39 @@ fun PrivacyShieldSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Plain-language verdict: one sentence anyone can understand.
+            val pageBlockedTotal = (activeTab?.totalBlockedOnPage ?: 0)
+            val verdictText = when {
+                !shieldConfig.isShieldEnabled ->
+                    "Protection is off — ads and trackers on this site can follow you."
+                pageBlockedTotal == 0 ->
+                    "Nothing blocked yet — this page looks clean so far."
+                pageBlockedTotal == 1 ->
+                    "Blocked 1 hidden ad or tracker on this page — it can't follow you."
+                else ->
+                    "Blocked $pageBlockedTotal hidden ads and trackers on this page — they can't follow you."
+            }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("shield_verdict"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (shieldConfig.isShieldEnabled)
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
+                )
+            ) {
+                Text(
+                    text = verdictText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Page Summary Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -167,7 +201,7 @@ fun PrivacyShieldSheet(
                             )
                         )
                         Text(
-                            text = "Ads Blocked",
+                            text = "Ads stopped",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -189,7 +223,7 @@ fun PrivacyShieldSheet(
                             )
                         )
                         Text(
-                            text = "Trackers Blocked",
+                            text = "Trackers stopped",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -214,7 +248,7 @@ fun PrivacyShieldSheet(
                             )
                         )
                         Text(
-                            text = "Data Saved",
+                            text = "Data saved",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -235,8 +269,8 @@ fun PrivacyShieldSheet(
 
             ShieldToggleItem(
                 icon = Icons.Default.Block,
-                title = "Hardcoded AdBlock",
-                subtitle = "Blocks DoubleClick, AdSense, Outbrain & ad exchanges",
+                title = "Block ads",
+                subtitle = "Hides banners, pop-ups and video ads",
                 checked = shieldConfig.blockAds,
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(blockAds = it)) },
@@ -245,8 +279,8 @@ fun PrivacyShieldSheet(
 
             ShieldToggleItem(
                 icon = Icons.Default.Fingerprint,
-                title = "Cross-Site Tracker Protection",
-                subtitle = "Blocks analytics, pixels, session recording & fingerprinters",
+                title = "Block trackers",
+                subtitle = "Stops hidden code that follows you across sites",
                 checked = shieldConfig.blockTrackers,
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(blockTrackers = it)) },
@@ -255,8 +289,8 @@ fun PrivacyShieldSheet(
 
             ShieldToggleItem(
                 icon = Icons.Default.Link,
-                title = "Strip Tracking URL Parameters",
-                subtitle = "Removes utm_*, fbclid, gclid, and analytics query tags",
+                title = "Clean tracking links",
+                subtitle = "Removes hidden tracking tags from links before you open them",
                 checked = shieldConfig.stripTrackingParams,
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(stripTrackingParams = it)) },
@@ -265,8 +299,8 @@ fun PrivacyShieldSheet(
 
             ShieldToggleItem(
                 icon = Icons.Default.Cookie,
-                title = "Block Third-Party Cookies",
-                subtitle = "Isolates site data to stop cross-domain behavioral tracking",
+                title = "Block third-party cookies",
+                subtitle = "Stops other companies' cookies from following you around",
                 checked = shieldConfig.blockThirdPartyCookies,
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(blockThirdPartyCookies = it)) },
@@ -275,12 +309,22 @@ fun PrivacyShieldSheet(
 
             ShieldToggleItem(
                 icon = Icons.Default.CleaningServices,
-                title = "Cosmetic Element Hiding",
-                subtitle = "Automatically collapses blank spaces left by blocked ads",
+                title = "Tidy up blocked ads",
+                subtitle = "Closes the empty gaps left behind by blocked ads",
                 checked = shieldConfig.cosmeticFiltering,
                 enabled = shieldConfig.isShieldEnabled,
                 onCheckedChange = { onConfigChange(shieldConfig.copy(cosmeticFiltering = it)) },
                 testTag = "toggle_cosmetic_filtering"
+            )
+
+            ShieldToggleItem(
+                icon = Icons.Default.Lock,
+                title = "Always use secure connection",
+                subtitle = "Automatically upgrades sites to the encrypted (https) version",
+                checked = shieldConfig.forceHttps,
+                enabled = shieldConfig.isShieldEnabled,
+                onCheckedChange = { onConfigChange(shieldConfig.copy(forceHttps = it)) },
+                testTag = "toggle_force_https"
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -305,7 +349,7 @@ fun PrivacyShieldSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Blocked on this site (${blockedEvents.size})",
+                                text = "Stopped on this site (${blockedEvents.size})",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -355,7 +399,7 @@ fun PrivacyShieldSheet(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Clear Site Cookies & Cache")
+                Text("Forget this site")
             }
 
             Spacer(modifier = Modifier.height(20.dp))

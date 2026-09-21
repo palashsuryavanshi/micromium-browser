@@ -65,6 +65,7 @@ abstract class VaultDatabase : RoomDatabase() {
     companion object {
         const val META_PASSWORD_VERIFIER = "master_password_verifier"
         const val META_BIOMETRIC_ALLOWED = "biometric_allowed"
+        const val META_NEVER_SAVE_HOSTS = "never_save_hosts"
 
         @Volatile
         private var INSTANCE: VaultDatabase? = null

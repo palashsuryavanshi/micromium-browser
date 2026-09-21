@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,8 +67,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.res.painterResource
-import com.example.R
 import com.example.model.BrowserTab
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,23 +77,34 @@ fun TabGridSwitcher(
     thumbnails: Map<String, ImageBitmap>,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
-    onNewTab: () -> Unit,
-    onCloseAllTabs: () -> Unit,
+    onNewTab: (incognito: Boolean) -> Unit,
+    onCloseVisibleTabs: (incognito: Boolean) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Regular vs incognito pages; defaults to the active tab's mode on open.
+    var showIncognito by remember(activeTabId) {
+        mutableStateOf(tabs.firstOrNull { it.id == activeTabId }?.isIncognito == true)
+    }
+    val visibleTabs = remember(tabs, showIncognito) {
+        tabs.filter { it.isIncognito == showIncognito }
+    }
+    val regularCount = tabs.count { !it.isIncognito }
+    val incognitoCount = tabs.size - regularCount
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Tabs (${tabs.size})",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = if (showIncognito) "Incognito ($incognitoCount)"
+                            else "Tabs ($regularCount)",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
                 navigationIcon = {
                     IconButton(
                         onClick = onDismiss,
@@ -101,14 +115,14 @@ fun TabGridSwitcher(
                 },
                 actions = {
                     IconButton(
-                        onClick = onNewTab,
+                        onClick = { onNewTab(showIncognito) },
                         modifier = Modifier.testTag("tab_switcher_new_tab")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "New Tab")
                     }
-                    if (tabs.size > 1) {
+                    if (visibleTabs.size > 1) {
                         IconButton(
-                            onClick = onCloseAllTabs,
+                            onClick = { onCloseVisibleTabs(showIncognito) },
                             modifier = Modifier.testTag("tab_switcher_close_all")
                         ) {
                             Icon(Icons.Outlined.DeleteSweep, contentDescription = "Close all tabs")
@@ -122,9 +136,9 @@ fun TabGridSwitcher(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onNewTab,
+                onClick = { onNewTab(showIncognito) },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New Tab") },
+                text = { Text(if (showIncognito) "New Incognito Tab" else "New Tab") },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
@@ -133,36 +147,110 @@ fun TabGridSwitcher(
             )
         }
     ) { innerPadding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(innerPadding)
         ) {
-            itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
-                val isActive = tab.id == activeTabId
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(
-                        animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
-                    ) + scaleIn(
-                        initialScale = 0.92f,
-                        animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
-                    )
+            // Regular / incognito pages
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ModeToggleChip(
+                    selected = !showIncognito,
+                    onClick = { showIncognito = false },
+                    testTag = "tab_mode_regular",
+                    modifier = Modifier.weight(1f),
+                    content = { Text("Tabs ($regularCount)") }
+                )
+                ModeToggleChip(
+                    selected = showIncognito,
+                    onClick = { showIncognito = true },
+                    testTag = "tab_mode_incognito",
+                    modifier = Modifier.weight(1f),
+                    content = {
+                        Icon(
+                            imageVector = Icons.Outlined.VisibilityOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Incognito ($incognitoCount)")
+                    }
+                )
+            }
+
+            if (visibleTabs.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    DismissibleTabCard(
-                        tab = tab,
-                        isActive = isActive,
-                        thumbnail = thumbnails[tab.id],
-                        onSelect = { onSelectTab(tab.id) },
-                        onClose = { onCloseTab(tab.id) }
+                    Text(
+                        text = if (showIncognito) "No incognito tabs open"
+                        else "No tabs open",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(visibleTabs, key = { _, tab -> tab.id }) { index, tab ->
+                        val isActive = tab.id == activeTabId
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = fadeIn(
+                                animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
+                            ) + scaleIn(
+                                initialScale = 0.92f,
+                                animationSpec = tween(durationMillis = 220, delayMillis = (index * 45).coerceAtMost(270))
+                            )
+                        ) {
+                            DismissibleTabCard(
+                                tab = tab,
+                                isActive = isActive,
+                                thumbnail = thumbnails[tab.id],
+                                onSelect = { onSelectTab(tab.id) },
+                                onClose = { onCloseTab(tab.id) }
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModeToggleChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) MaterialTheme.colorScheme.surfaceVariant
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
     }
 }
 
@@ -297,41 +385,6 @@ private fun TabCard(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Color(0xFF6B7280))
-                    )
-                }
-
-                if (tab.totalBlockedOnPage > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "🛡️ ${tab.totalBlockedOnPage} blocked",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = if (tab.isStartPage) "Shield Start Page" else tab.url,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 11.sp
                     )
                 }
             }

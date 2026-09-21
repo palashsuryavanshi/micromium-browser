@@ -14,6 +14,7 @@ data class BrowserTab(
     val isLoading: Boolean = false,
     val progress: Int = 0,
     val isDesktopSite: Boolean = false,
+    val isReaderMode: Boolean = false,
     val isIncognito: Boolean = false,
     val pageBlockedAds: Int = 0,
     val pageBlockedTrackers: Int = 0,

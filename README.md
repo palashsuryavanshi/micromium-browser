@@ -9,19 +9,23 @@
 ## Features
 
 ### 🛡️ Privacy Shield
-- Hardcoded ad blocking (DoubleClick, AdSense, Outbrain & ad exchanges)
+- Plain-language protection verdict per page ("Blocked 12 hidden ads and trackers…")
+- Ad blocking (DoubleClick, AdSense, Outbrain & ad exchanges)
 - Cross-site tracker protection (analytics, pixels, session recording, fingerprinters)
-- Tracking-parameter stripping (`utm_*`, `fbclid`, `gclid`, …)
+- Tracking-link cleaning (`utm_*`, `fbclid`, `gclid`, …)
 - Third-party cookie blocking
-- Cosmetic element hiding (collapses blank spaces left by blocked ads)
-- Per-page blocked counters (ads, trackers, data saved) with a blocked-event log
-- Per-site controls: clear site cookies & cache
+- Tidy-up of blank spaces left by blocked ads
+- Per-page counters (ads stopped, trackers stopped, data saved) with a per-site activity log
+- One-tap **Forget this site**: clears that site's cookies, storage, and history
 
 ### 🧭 Browsing
-- Chromium-powered WebView with desktop-site toggle, zoom, and HTTPS indicator
+- Chromium-powered WebView with per-site desktop-mode memory, zoom, and HTTPS indicator
+- Reader view for long articles
 - Smart omnibox: type a URL or a search query, with search suggestions UI
 - Multiple search engines (DuckDuckGo, Google, Brave) plus custom engines you can add/remove
-- Bookmarks and full browsing history, stored on-device (Room)
+- Bookmarks (with folders) and full searchable browsing history, stored on-device (Room)
+- In-app downloads list with open/remove, plus system viewer fallback
+- Share page via system share sheet or QR code
 - Incognito tabs
 - System-driven rotation (follows the device auto-rotate setting)
 
@@ -63,6 +67,16 @@ Command line (from the project root, using the Gradle wrapper JAR):
 "C:\Program Files\Android\Android Studio\jbr\bin\java.exe" -jar gradle/wrapper/gradle-wrapper.jar assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## Releases
+
+Tagged `v*` pushes build and publish a signed release APK via [`.github/workflows/release.yml`](.github/workflows/release.yml):
+
+1. Create an upload keystore once: `keytool -genkeypair -keystore my-upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000` (keep it out of git).
+2. Add repo secrets: `KEYSTORE_BASE64` (base64 of the `.jks`), `STORE_PASSWORD`, `KEY_PASSWORD`.
+3. Push a tag: `git tag v1.1.0 && git push origin v1.1.0` — the workflow derives `VERSION_NAME` from the tag and `VERSION_CODE` from the commit count, runs unit tests, and attaches `app-release.apk` to the GitHub Release.
+
+Local signed build: set `KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD` and run `assembleRelease`.
 
 ## Project structure
 - `app/src/main/java/com/example/` — `MainActivity.kt`, ViewModel, data (Room), privacy engine

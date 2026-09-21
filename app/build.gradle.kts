@@ -17,8 +17,9 @@ android {
     applicationId = "com.palash.micromium"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Overridable for tagged releases, e.g. VERSION_CODE=12 VERSION_NAME=1.2.0
+    versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1).coerceAtLeast(1)
+    versionName = System.getenv("VERSION_NAME") ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -103,6 +104,10 @@ dependencies {
   implementation(libs.firebase.ai)
   // Encrypted vault (Tink):
   implementation(libs.tink.android)
+  // Safe Browsing + algorithmic darkening compat:
+  implementation(libs.androidx.webkit)
+  // QR code generation for page sharing:
+  implementation(libs.zxing.core)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)

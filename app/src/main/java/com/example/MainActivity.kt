@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,10 @@ import com.example.model.BrowserTab
 import com.example.privacy.ShieldConfig
 import com.example.ui.BrowserViewModel
 import com.example.ui.components.BookmarksHistoryDialog
+import com.example.ui.components.BrowsingToolbar
+import com.example.ui.components.openSystemDownloads
+import com.example.ui.components.webview.forgetSiteStorage
+import com.example.ui.components.webview.initSafeBrowsing
 import com.example.ui.components.ChromiumOmnibox
 import com.example.ui.components.ChromiumStartPage
 import com.example.ui.components.OnboardingScreen
@@ -85,6 +90,10 @@ fun BrowserApp(
 ) {
     val context = LocalContext.current
 
+    LaunchedEffect(Unit) {
+        initSafeBrowsing(context)
+    }
+
     val tabs by viewModel.tabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
     val activeTab by viewModel.activeTab.collectAsState()
@@ -105,6 +114,8 @@ fun BrowserApp(
 
     val selectedSearchEngineUrl by viewModel.selectedSearchEngineUrl.collectAsState()
     val customSearchEngines by viewModel.customSearchEngines.collectAsState()
+    val textZoom by viewModel.textZoom.collectAsState()
+    val recentlyClosed by viewModel.recentlyClosed.collectAsState()
 
     val bookmarks by viewModel.bookmarks.collectAsState()
     val history by viewModel.history.collectAsState()
@@ -116,6 +127,7 @@ fun BrowserApp(
     val vaultError by viewModel.vaultError.collectAsState()
     val vaultLastImportCount by viewModel.vaultLastImportCount.collectAsState()
     val biometricAllowed by viewModel.biometricAllowed.collectAsState()
+    val saveLoginPrompt by viewModel.saveLoginPrompt.collectAsState()
     // Clear Data Dialog state
     var showClearDataDialog by remember { mutableStateOf(false) }
     var clearCacheSelected by remember { mutableStateOf(true) }
@@ -213,6 +225,11 @@ fun BrowserApp(
                     onBookmarksClick = { viewModel.setBookmarksHistoryDialogVisible(true, 0) },
                     onHistoryClick = { viewModel.setBookmarksHistoryDialogVisible(true, 1) },
                     onToggleDesktopSite = { viewModel.toggleDesktopSite() },
+                    onToggleReaderMode = { viewModel.toggleReaderMode() },
+                    onFindInPageClick = { tabId -> viewModel.showFindBar(tabId) },
+                    onPrintClick = { tabId -> viewModel.printPage(tabId) },
+                    recentlyClosedCount = recentlyClosed.size,
+                    onReopenClosedTab = { viewModel.reopenLastClosedTab() },
                     onClearDataClick = { showClearDataDialog = true },
                     onShareClick = omniboxCallbacks.onShareClick,
                     onSettingsClick = { viewModel.setSettingsDialogVisible(true) }
@@ -261,6 +278,11 @@ fun BrowserApp(
                     onBookmarksClick = { viewModel.setBookmarksHistoryDialogVisible(true, 0) },
                     onHistoryClick = { viewModel.setBookmarksHistoryDialogVisible(true, 1) },
                     onToggleDesktopSite = { viewModel.toggleDesktopSite() },
+                    onToggleReaderMode = { viewModel.toggleReaderMode() },
+                    onFindInPageClick = { tabId -> viewModel.showFindBar(tabId) },
+                    onPrintClick = { tabId -> viewModel.printPage(tabId) },
+                    recentlyClosedCount = recentlyClosed.size,
+                    onReopenClosedTab = { viewModel.reopenLastClosedTab() },
                     onClearDataClick = { showClearDataDialog = true },
                     onShareClick = omniboxCallbacks.onShareClick,
                     onSettingsClick = { viewModel.setSettingsDialogVisible(true) }
@@ -281,7 +303,12 @@ fun BrowserApp(
                     if (isVisible) {
                         ChromiumStartPage(
                             shieldConfig = shieldConfig,
-                            onOpenShieldSettings = { viewModel.setShieldSheetVisible(true) }
+                            onOpenShieldSettings = { viewModel.setShieldSheetVisible(true) },
+                            recentBookmarks = viewModel.rootBookmarks.value.filter { !it.isFolder }.take(8),
+                            topSites = viewModel.history.value.take(8),
+                            onBookmarkClick = { url ->
+                                viewModel.submitUrlOrQuery(url)
+                            }
                         )
                     }
                 } else {
@@ -307,6 +334,14 @@ fun BrowserApp(
                         onThumbnailCaptured = { tabId, thumbnail ->
                             viewModel.onTabThumbnailCaptured(tabId, thumbnail)
                         },
+                        onLoginDetected = { url, username, password ->
+                            viewModel.onLoginDetected(url, username, password)
+                        },
+                        onPopupUrl = { url ->
+                            viewModel.openNewTab(url)
+                        },
+                        onReaderUnsupported = { viewModel.onReaderUnsupported() },
+                        textZoom = textZoom,
                         modifier = Modifier
                             .fillMaxSize()
                             .alpha(if (isVisible) 1f else 0f)
@@ -314,6 +349,46 @@ fun BrowserApp(
                 }
             }
         }
+    }
+
+    // Save-password prompt (login detected on a page)
+    val loginPrompt = saveLoginPrompt
+    if (loginPrompt != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissSaveLogin() },
+            title = { Text("Save password?") },
+            text = {
+                Column {
+                    Text(
+                        text = "Save the login for ${loginPrompt.host}" +
+                            (if (loginPrompt.username.isNotEmpty()) " (${loginPrompt.username})" else "") +
+                            " in this device's password vault?"
+                    )
+                    TextButton(
+                        onClick = { viewModel.neverSaveLogin() },
+                        modifier = Modifier.testTag("save_login_never")
+                    ) {
+                        Text("Never for this site")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.confirmSaveLogin() },
+                    modifier = Modifier.testTag("save_login_save")
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissSaveLogin() },
+                    modifier = Modifier.testTag("save_login_later")
+                ) {
+                    Text("Not now")
+                }
+            }
+        )
     }
 
     // Tab Grid Switcher Overlay
@@ -338,8 +413,8 @@ fun BrowserApp(
             thumbnails = thumbnails,
             onSelectTab = { viewModel.selectTab(it) },
             onCloseTab = { viewModel.closeTab(it) },
-            onNewTab = { viewModel.openNewTab() },
-            onCloseAllTabs = { viewModel.closeAllTabs() },
+            onNewTab = { incognito -> viewModel.openNewTab(isIncognito = incognito) },
+            onCloseVisibleTabs = { incognito -> viewModel.closeTabsByMode(incognito) },
             onDismiss = { viewModel.setTabSwitcherVisible(false) }
         )
     }
@@ -352,8 +427,16 @@ fun BrowserApp(
             shieldConfig = shieldConfig,
             onConfigChange = { viewModel.updateShieldConfig(it) },
             onClearSiteData = {
-                viewModel.clearBrowsingData(clearCache = true, clearCookies = true, clearHistory = false)
-                Toast.makeText(context, "Site cookies & cache cleared", Toast.LENGTH_SHORT).show()
+                val pageUrl = activeTab?.url.orEmpty()
+                val host = runCatching { android.net.Uri.parse(pageUrl).host.orEmpty() }.getOrDefault("")
+                if (host.isBlank()) {
+                    viewModel.clearBrowsingData(clearCache = true, clearCookies = true, clearHistory = false)
+                    Toast.makeText(context, "Site cookies & cache cleared", Toast.LENGTH_SHORT).show()
+                } else {
+                    forgetSiteStorage(pageUrl)
+                    viewModel.forgetSite(pageUrl)
+                    Toast.makeText(context, "Forgot $host", Toast.LENGTH_SHORT).show()
+                }
                 viewModel.setShieldSheetVisible(false)
                 viewModel.reload()
             },
@@ -392,6 +475,13 @@ fun BrowserApp(
             customSearchEngines = customSearchEngines,
             onToolbarPositionChange = { viewModel.setToolbarAtBottom(it) },
             onDarkThemeChange = { viewModel.setDarkTheme(it) },
+            textZoom = textZoom,
+            onTextZoomChange = { viewModel.setTextZoom(it) },
+            shieldConfig = shieldConfig,
+            onShieldConfigChange = { viewModel.updateShieldConfig(it) },
+            onOpenDownloads = {
+                openSystemDownloads(context)
+            },
             onSearchEngineSelect = { viewModel.setSelectedSearchEngine(it) },
             onAddCustomSearchEngine = { name, url -> viewModel.addCustomSearchEngine(name, url) },
             onRemoveCustomSearchEngine = { viewModel.removeCustomSearchEngine(it) },
@@ -413,7 +503,12 @@ fun BrowserApp(
             onImportVaultCsv = { content -> viewModel.importVaultCsv(content) },
             onClearVaultError = { viewModel.clearVaultError() },
             onClearVaultImportCount = { viewModel.clearVaultImportCount() },
-            onBack = { viewModel.setSettingsDialogVisible(false) }
+            onBack = { viewModel.setSettingsDialogVisible(false) },
+            viewModel = viewModel,
+            onOpenUrl = { url ->
+                viewModel.setSettingsDialogVisible(false)
+                viewModel.submitUrlOrQuery(url)
+            }
         )
     }
 
@@ -457,6 +552,12 @@ fun BrowserApp(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Cached images and files")
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Note: clearing cookies signs you out of most sites.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
@@ -480,81 +581,6 @@ fun BrowserApp(
                     Text("Cancel")
                 }
             }
-        )
-    }
-}
-
-@Composable
-private fun BrowsingToolbar(
-    activeTab: BrowserTab?,
-    openTabsCount: Int,
-    inputText: String,
-    isEditing: Boolean,
-    shieldConfig: ShieldConfig,
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    isLoading: Boolean,
-    isBookmarked: Boolean,
-    atTop: Boolean,
-    onInputTextChange: (String) -> Unit,
-    onStartEditing: () -> Unit,
-    onSubmitQuery: (String) -> Unit,
-    onCancelEditing: () -> Unit,
-    onShieldClick: () -> Unit,
-    onTabSwitcherClick: () -> Unit,
-    onNewTabClick: () -> Unit,
-    onNewIncognitoTabClick: () -> Unit,
-    onBackClick: () -> Unit,
-    onForwardClick: () -> Unit,
-    onReloadOrStopClick: () -> Unit,
-    onHomeClick: () -> Unit,
-    onBookmarkClick: () -> Unit,
-    onBookmarksClick: () -> Unit,
-    onHistoryClick: () -> Unit,
-    onToggleDesktopSite: () -> Unit,
-    onClearDataClick: () -> Unit,
-    onShareClick: () -> Unit,
-    onSettingsClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(if (atTop) WindowInsets.statusBars else WindowInsets.navigationBars)
-    ) {
-        ChromiumOmnibox(
-            activeTab = activeTab,
-            openTabsCount = openTabsCount,
-            inputText = inputText,
-            isEditing = isEditing,
-            shieldConfig = shieldConfig,
-            canGoBack = canGoBack,
-            canGoForward = canGoForward,
-            isLoading = isLoading,
-            isBookmarked = isBookmarked,
-            onInputTextChange = onInputTextChange,
-            onStartEditing = onStartEditing,
-            onSubmitQuery = onSubmitQuery,
-            onCancelEditing = onCancelEditing,
-            onShieldClick = onShieldClick,
-            onTabSwitcherClick = onTabSwitcherClick,
-            onNewTabClick = onNewTabClick,
-            onNewIncognitoTabClick = onNewIncognitoTabClick,
-            onBackClick = onBackClick,
-            onForwardClick = onForwardClick,
-            onReloadOrStopClick = onReloadOrStopClick,
-            onHomeClick = onHomeClick,
-            onBookmarkClick = onBookmarkClick,
-            onBookmarksClick = onBookmarksClick,
-            onHistoryClick = onHistoryClick,
-            onToggleDesktopSite = onToggleDesktopSite,
-            onClearDataClick = onClearDataClick,
-            onShareClick = onShareClick,
-            onSettingsClick = onSettingsClick
-        )
-
-        PageProgressBar(
-            isLoading = activeTab?.isLoading == true,
-            progress = activeTab?.progress ?: 0
         )
     }
 }

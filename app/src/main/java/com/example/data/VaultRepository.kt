@@ -117,6 +117,34 @@ class VaultRepository(private val appContext: Context) {
         }
     }
 
+    /** True if this exact host+username is already saved (used to skip the prompt). */
+    suspend fun hasLogin(host: String, username: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            dao.findByHostAndUsername(host, username) != null
+        }
+    }
+
+    suspend fun isNeverSave(host: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            neverHosts().contains(host)
+        }
+    }
+
+    suspend fun addNeverSaveHost(host: String) {
+        withContext(Dispatchers.IO) {
+            val updated = (neverHosts() + host).sorted()
+            dao.putMeta(VaultMetaEntity(VaultDatabase.META_NEVER_SAVE_HOSTS, updated.joinToString(",")))
+        }
+    }
+
+    private suspend fun neverHosts(): Set<String> {
+        return dao.getMeta(VaultDatabase.META_NEVER_SAVE_HOSTS)
+            ?.split(",")
+            ?.map { it.trim().lowercase() }
+            ?.filter { it.isNotEmpty() }
+            ?.toSet() ?: emptySet()
+    }
+
     /**
      * Imports a password CSV exported from Chrome, Brave, Opera, Edge
      * (header: name,url,username,password[,note]) or Firefox
